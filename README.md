@@ -15,7 +15,7 @@ Before "Midnight Fall," our infrastructure was a fragile web of co-hosted server
 - **VMware clustering**
 - **Dedicated monitoring stack**
 
-The new stack: a fresh VMware vSAN cluster hosting **120 Ubuntu 20.04 VMs** running heavy data services (Kafka, PostgreSQL, TimescaleDB).
+The new stack: a fresh VMware vSAN cluster hosting **120 Ubuntu 20.04 VMs** running heavy data & internal services (Internal Apps, Kafka, PostgreSQL, TimescaleDB & etc).
 
 ---
 
@@ -71,11 +71,148 @@ The base VM template now includes a bash script with a randomization function. O
 ---
 
 
+
 ## 📂 Repository Contents
 
 - `fleet_logrotate_stagger.sh` — Staggers logrotate/cron jobs across an existing Ubuntu VM fleet
 - `template_randomize_cron.sh` — Injects random log rotation on first boot for new VMs
 - `benchmark_write_cliff.sh` — Disk I/O stress test to reproduce the write cliff and thundering herd effect
+
+---
+
+## 🛠 Scripts & Usage
+
+### 1. `fleet_logrotate_stagger.sh`
+**Purpose:** Stagger logrotate/systemd timers across a time window to prevent synchronized IO spikes.
+
+**Usage:**
+
+```sh
+sudo ./fleet_logrotate_stagger.sh --start 00:00 --end 03:00
+```
+
+**Flags:**
+- `--start` — earliest time window for staggered jobs (HH:MM)
+- `--end` — latest time window for staggered jobs (HH:MM)
+
+**Preconditions:**
+- Script must be run as root
+- SSH access to all target VMs
+
+**Expected Output:**
+```
+VM1: logrotate timer set to 00:17
+VM2: logrotate timer set to 01:05
+VM3: logrotate timer set to 02:42
+...etc
+```
+
+---
+
+### 2. `benchmark_write_cliff.sh`
+**Purpose:** Simulate the midnight write cliff to verify cluster behavior and test mitigations.
+
+**Usage:**
+
+```sh
+sudo ./benchmark_write_cliff.sh --duration 60 --block-size 4k
+```
+
+**Flags:**
+- `--duration` — duration in seconds
+- `--block-size` — IO block size to write
+
+**Expected Output:**
+- Continuous IO operations that replicate high latency
+- Graph or log of latency spikes (optional: add `--log` flag to save to file)
+
+
+**Orchestration Tools:**
+For realistic simulation, run this script in parallel across several VMs. Use orchestration tools to coordinate execution and aggregate results. Two common approaches:
+
+#### a) Ansible Playbook Example
+Create an inventory file (e.g., `inventory.ini`):
+```
+[vms]
+vm1 ansible_host=192.168.1.101
+vm2 ansible_host=192.168.1.102
+vm3 ansible_host=192.168.1.103
+```
+
+Sample playbook (`run_benchmark.yml`):
+```yaml
+- hosts: vms
+	become: yes
+	tasks:
+		- name: Copy benchmark script
+			copy:
+				src: benchmark_write_cliff.sh
+				dest: /tmp/benchmark_write_cliff.sh
+				mode: '0755'
+		- name: Run benchmark
+			shell: /tmp/benchmark_write_cliff.sh --duration 60 --block-size 4k
+			async: 120
+			poll: 0
+```
+Run with:
+```
+ansible-playbook -i inventory.ini run_benchmark.yml
+```
+
+**Tip:** To incrementally increase load, adjust the number of hosts in the inventory or run the playbook in batches.
+
+#### b) Parallel SSH (pssh) Example
+Install pssh and run:
+```
+pssh -h hosts.txt -l user -A -i 'sudo ./benchmark_write_cliff.sh --duration 60 --block-size 4k'
+```
+Where `hosts.txt` contains one VM IP/hostname per line.
+
+**Batch Control:**
+- Start with a subset of VMs, then add more in each batch to observe saturation and latency effects.
+- Stop all benchmarks with a single command if needed (e.g., using pkill via Ansible or pssh).
+
+---
+
+### 3. `template_randomize_cron.sh`
+**Purpose:** Inject randomness into cron schedules for new VM templates. Prevents future thundering herds.
+
+**Usage:**
+
+```sh
+sudo ./template_randomize_cron.sh /etc/cron.d/my-template
+```
+
+**Preconditions:**
+- Must be run before cloning the VM template
+- Target file must be readable and writable
+
+**Expected Output:**
+```
+Template cron job randomized: 02:14
+Template cron job randomized: 01:37
+```
+
+---
+
+## ⏱ Midnight Cascade Timeline
+
+```
+00:00 ─ All VMs trigger default cron/logrotate jobs
+00:05 ─ vSAN write queue saturated
+00:10 ─ Latency spikes across cluster
+00:15 ─ Critical services slow / errors appear
+00:30 ─ Services recover as cron jobs finish
+```
+
+## Visual Diagram
+
+```mermaid
+flowchart TD
+	A[All VMs trigger jobs] --> B[IO Spikes / Write Cliff]
+	B --> C[Latency Spikes]
+	C --> D[Service Degradation]
+```
 
 ---
 
