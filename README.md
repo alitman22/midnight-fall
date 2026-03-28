@@ -82,49 +82,80 @@ The base VM template now includes a bash script with a randomization function. O
 
 ## 🛠 Scripts & Usage
 
+
 ### 1. `fleet_logrotate_stagger.sh`
 **Purpose:** Stagger logrotate/systemd timers across a time window to prevent synchronized IO spikes.
 
-**Usage:**
-
+**Usage Example:**
 ```sh
-sudo ./fleet_logrotate_stagger.sh --start 00:00 --end 03:00
+sudo ./fleet_logrotate_stagger.sh
 ```
 
-**Flags:**
-- `--start` — earliest time window for staggered jobs (HH:MM)
-- `--end` — latest time window for staggered jobs (HH:MM)
+**Arguments & Flags:**
+*No arguments required. The script randomizes the logrotate/cron.daily job start time for each VM within a 3-hour window after midnight.*
 
 **Preconditions:**
-- Script must be run as root
-- SSH access to all target VMs
+- Must be run as root (sudo)
+- Should be executed on each VM in the fleet (can be distributed via automation tools)
+- Target system must use either systemd logrotate.timer or /etc/crontab for cron.daily
 
 **Expected Output:**
 ```
-VM1: logrotate timer set to 00:17
-VM2: logrotate timer set to 01:05
-VM3: logrotate timer set to 02:42
-...etc
+Logrotate and cron.daily jobs staggered by XX minutes after midnight.
 ```
+*Where XX is a random number between 0 and 179.*
+
+**How to Verify Success:**
+- Check `/etc/systemd/system/logrotate.timer.d/stagger.conf` for a new OnCalendar override (if using systemd)
+- Or, check `/etc/crontab` for a randomized minute on the cron.daily line
+- Run `systemctl list-timers | grep logrotate` to see the next scheduled time
+
+**Error Handling:**
+- Script exits on error (`set -e`)
+- If systemd or crontab is not present, script will silently skip that method
+- If not run as root, script will fail with a permission error
 
 ---
 
+
 ### 2. `benchmark_write_cliff.sh`
-**Purpose:** Simulate the midnight write cliff to verify cluster behavior and test mitigations.
+**Purpose:** Disk I/O stress test to reproduce the write cliff and thundering herd effect on vSAN/consumer SSDs.
 
-**Usage:**
-
+**Usage Example:**
 ```sh
-sudo ./benchmark_write_cliff.sh --duration 60 --block-size 4k
+sudo ./benchmark_write_cliff.sh
 ```
 
-**Flags:**
-- `--duration` — duration in seconds
-- `--block-size` — IO block size to write
+**Arguments & Flags:**
+*No arguments required. To customize, edit the script variables for block size, total size, and runtime.*
+	- `BLOCK_SIZE` (default: 4K)
+	- `TOTAL_SIZE` (default: 2G)
+	- `RUNTIME` (default: 300 seconds)
+
+**Preconditions:**
+- Must be run as root (sudo)
+- Requires `fio` installed on the system
+- Sufficient disk space in `/tmp` for the test file
 
 **Expected Output:**
-- Continuous IO operations that replicate high latency
-- Graph or log of latency spikes (optional: add `--log` flag to save to file)
+- FIO output showing write and read performance, IOPS, and latency
+- Example output:
+	```
+	write_cliff_test: (groupid=0, jobs=4): err= 0: pid=...: ...
+		write: IOPS=..., BW=..., Latency=...
+	read_cliff_test: (groupid=0, jobs=4): err= 0: pid=...: ...
+		read: IOPS=..., BW=..., Latency=...
+	```
+
+**How to Verify Success:**
+- Script completes without error
+- FIO output is displayed in the terminal
+- `/tmp/benchmark_write_cliff.testfile` is created and deleted
+
+**Error Handling:**
+- Script exits on error (`set -e`)
+- If `fio` is not installed, script will fail with a command not found error
+- If insufficient disk space, fio will report an error
 
 
 **Orchestration Tool: Ansible Automation**
@@ -163,24 +194,42 @@ ansible-playbook -i ansible/inventory.ini ansible/site.yml -e spread_logrotate=t
 
 ---
 
+
 ### 3. `template_randomize_cron.sh`
 **Purpose:** Inject randomness into cron schedules for new VM templates. Prevents future thundering herds.
 
-**Usage:**
-
+**Usage Example:**
 ```sh
-sudo ./template_randomize_cron.sh /etc/cron.d/my-template
+sudo ./template_randomize_cron.sh
 ```
 
+**Arguments & Flags:**
+*No arguments required. The script randomizes logrotate/systemd timer or cron.daily for the template VM.*
+
 **Preconditions:**
-- Must be run before cloning the VM template
-- Target file must be readable and writable
+- Must be run as root (sudo)
+- Should be executed on the golden/template VM before cloning or distributing
+- Target system must use either systemd logrotate.timer or /etc/crontab for cron.daily
 
 **Expected Output:**
 ```
-Template cron job randomized: 02:14
-Template cron job randomized: 01:37
+Logrotate/cron.daily randomized to HH:MM (first boot only).
 ```
+*Where HH:MM is a random time between 00:00 and 06:00.*
+
+**How to Verify Success:**
+- Check `/etc/systemd/system/logrotate.timer.d/randomize.conf` for a new OnCalendar override (if using systemd)
+- Or, check `/etc/crontab` for a randomized time on the cron.daily line
+- Run `systemctl list-timers | grep logrotate` to see the next scheduled time
+- The flag file `/var/lib/logrotate_randomized.flag` should exist after first run
+
+**Error Handling:**
+- Script exits on error (`set -e`)
+- If systemd or crontab is not present, script will silently skip that method
+- If not run as root, script will fail with a permission error
+
+---
+
 
 ---
 
