@@ -1,6 +1,6 @@
 ---
 - hosts: vms
-  become: yes
+  become: true
   vars:
     benchmark_duration: 60
     benchmark_block_size: 4k
