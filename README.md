@@ -127,50 +127,39 @@ sudo ./benchmark_write_cliff.sh --duration 60 --block-size 4k
 - Graph or log of latency spikes (optional: add `--log` flag to save to file)
 
 
-**Orchestration Tools:**
-For realistic simulation, run this script in parallel across several VMs. Use orchestration tools to coordinate execution and aggregate results. Two common approaches:
+**Orchestration Tool: Ansible Automation**
 
-#### a) Ansible Playbook Example
-Create an inventory file (e.g., `inventory.ini`):
-```
-[vms]
-vm1 ansible_host=192.168.1.101
-vm2 ansible_host=192.168.1.102
-vm3 ansible_host=192.168.1.103
-```
+For realistic simulation and remediation, use the provided Ansible playbook to coordinate actions across your VM fleet.
 
-Sample playbook (`run_benchmark.yml`):
-```yaml
-- hosts: vms
-	become: yes
-	tasks:
-		- name: Copy benchmark script
-			copy:
-				src: benchmark_write_cliff.sh
-				dest: /tmp/benchmark_write_cliff.sh
-				mode: '0755'
-		- name: Run benchmark
-			shell: /tmp/benchmark_write_cliff.sh --duration 60 --block-size 4k
-			async: 120
-			poll: 0
+### Ansible Tool Features
+- **Run the benchmark** (`benchmark_write_cliff.sh`) on all or a subset of VMs
+- **Remediate logrotate/systemd timer spread** (`fleet_logrotate_stagger.sh`) across all VMs
+
+> The template randomization script (`template_randomize_cron.sh`) is not included in the playbook and should be used manually during VM image/template creation.
+
+#### Setup
+1. Edit `ansible/inventory.ini` to list your VM hostnames or IPs under the `[vms]` group.
+2. Adjust variables in `ansible/site.yml` as needed (e.g., duration, block size, time window).
+
+#### Usage
+To run the playbook and perform both actions:
 ```
-Run with:
-```
-ansible-playbook -i inventory.ini run_benchmark.yml
+ansible-playbook -i ansible/inventory.ini ansible/site.yml -e run_benchmark=true -e spread_logrotate=true
 ```
 
-**Tip:** To incrementally increase load, adjust the number of hosts in the inventory or run the playbook in batches.
+To run only the benchmark:
+```
+ansible-playbook -i ansible/inventory.ini ansible/site.yml -e run_benchmark=true
+```
 
-#### b) Parallel SSH (pssh) Example
-Install pssh and run:
+To run only the logrotate spread remediation:
 ```
-pssh -h hosts.txt -l user -A -i 'sudo ./benchmark_write_cliff.sh --duration 60 --block-size 4k'
+ansible-playbook -i ansible/inventory.ini ansible/site.yml -e spread_logrotate=true
 ```
-Where `hosts.txt` contains one VM IP/hostname per line.
 
 **Batch Control:**
-- Start with a subset of VMs, then add more in each batch to observe saturation and latency effects.
-- Stop all benchmarks with a single command if needed (e.g., using pkill via Ansible or pssh).
+- Start with a subset of VMs in your inventory, then add more in each batch to observe saturation and latency effects.
+- Stop all benchmarks with a single command if needed (e.g., using pkill via Ansible).
 
 ---
 
