@@ -32,7 +32,7 @@ Consumer SSDs lack Power Loss Protection (PLP) and rely on small SLC write cache
 
 ## 🚨 The Anomaly
 
-Everything ran smoothly—until **12:00 AM**. The cluster hit a wall:
+During sanity and integrity test of cluster everything ran smoothly—until **12:00 AM**. The cluster hit a wall:
 
 - Services stuttered
 - Databases lagged
@@ -48,7 +48,7 @@ The monitoring stack failed alongside the application layer, leaving us blind as
 - **Backup Suspect:** Disabled backup schedules—problem persisted.
 - **Decoupling Observability:** Migrated monitoring tools out of the cluster. Out-of-band metrics revealed: at 12:00 AM, IOPS and latency spiked. Disks were saturated.
 - **Isolating Workloads:** Shut down heavy I/O VMs—problem remained, though less severe.
-- **Benchmarking the Write Cliff:** Custom script hammered disks on 5 VMs. Latency skyrocketed, reproducing the failure. The 870 EVOs' SLC caches were exhausted by synchronized I/O bursts.
+- **Benchmarking the Write Cliff:** Custom script hammered disks on 10 VMs. Latency skyrocketed, reproducing the failure. The 870 EVOs' SLC caches were exhausted by synchronized I/O bursts.
 
 ---
 
