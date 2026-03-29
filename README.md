@@ -1,4 +1,5 @@
 # 🌑 Midnight Fall: Mitigating a vSAN Thundering Herd on Budget Hardware
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/319e44cc-b106-49f5-bf44-17730e4cea1c" />
 
 ---
 
