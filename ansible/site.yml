@@ -2,10 +2,14 @@
 - hosts: vms
   become: true
   vars:
-    benchmark_duration: 60
+    benchmark_duration: 300
     benchmark_block_size: 4k
+    benchmark_total_size: 2G
+    benchmark_jobs: 4
     spread_start: "00:00"
     spread_end: "03:00"
+    run_benchmark: false
+    spread_logrotate: false
   tasks:
     - name: Copy benchmark script
       copy:
@@ -20,11 +24,16 @@
         mode: '0755'
 
     - name: Run benchmark (optional, set run_benchmark=true)
-      shell: /tmp/benchmark_write_cliff.sh --duration {{ benchmark_duration }} --block-size {{ benchmark_block_size }}
-      async: 120
+      shell: >-
+        /tmp/benchmark_write_cliff.sh
+        --duration {{ benchmark_duration }}
+        --block-size {{ benchmark_block_size }}
+        --total-size {{ benchmark_total_size }}
+        --jobs {{ benchmark_jobs }}
+      async: "{{ benchmark_duration | int + 120 }}"
       poll: 0
-      when: run_benchmark | default(false)
+      when: run_benchmark
 
     - name: Spread logrotate/systemd timers (optional, set spread_logrotate=true)
       shell: /tmp/fleet_logrotate_stagger.sh --start {{ spread_start }} --end {{ spread_end }}
-      when: spread_logrotate | default(false)
+      when: spread_logrotate

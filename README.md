@@ -5,6 +5,8 @@
 
 > **A postmortem, architectural analysis, and remediation toolkit for a severe infrastructure anomaly during a major datacenter consolidation.**
 
+> **Scope note:** This incident occurred about 4 years ago. Retained screenshots/telemetry exports are limited, so this repository is intentionally narrative-first, with runnable scripts kept real and practical. Environment scope is Ubuntu 20.04.
+
 ---
 
 ## 🏗️ Background: From Spaghetti to Centralized On-Prem
@@ -89,22 +91,24 @@ The base VM template now includes a bash script with a randomization function. O
 
 **Usage Example:**
 ```sh
-sudo ./fleet_logrotate_stagger.sh
+sudo ./fleet_logrotate_stagger.sh --start 00:00 --end 03:00
 ```
 
 **Arguments & Flags:**
-*No arguments required. The script randomizes the logrotate/cron.daily job start time for each VM within a 3-hour window after midnight.*
+- `--start HH:MM` start of spread window (default: `00:00`)
+- `--end HH:MM` end of spread window, exclusive (default: `03:00`)
+- `-h`, `--help` print usage
 
 **Preconditions:**
 - Must be run as root (sudo)
 - Should be executed on each VM in the fleet (can be distributed via automation tools)
-- Target system must use either systemd logrotate.timer or /etc/crontab for cron.daily
+- Target OS scope: Ubuntu 20.04 (systemd timer and/or `/etc/crontab` cron.daily entry)
+- Time window must be same day and `end > start`
 
 **Expected Output:**
 ```
-Logrotate and cron.daily jobs staggered by XX minutes after midnight.
+Logrotate/cron.daily staggered to HH:MM within 00:00-03:00.
 ```
-*Where XX is a random number between 0 and 179.*
 
 **How to Verify Success:**
 - Check `/etc/systemd/system/logrotate.timer.d/stagger.conf` for a new OnCalendar override (if using systemd)
@@ -124,19 +128,22 @@ Logrotate and cron.daily jobs staggered by XX minutes after midnight.
 
 **Usage Example:**
 ```sh
-sudo ./benchmark_write_cliff.sh
+sudo ./benchmark_write_cliff.sh --duration 300 --block-size 4k --total-size 2G --jobs 4
 ```
 
 **Arguments & Flags:**
-*No arguments required. To customize, edit the script variables for block size, total size, and runtime.*
-	- `BLOCK_SIZE` (default: 4K)
-	- `TOTAL_SIZE` (default: 2G)
-	- `RUNTIME` (default: 300 seconds)
+- `--duration SEC` runtime per phase (default: `300`)
+- `--block-size SIZE` I/O block size (default: `4K`)
+- `--total-size SIZE` test file size (default: `2G`)
+- `--jobs N` parallel jobs (default: `4`)
+- `--file PATH` test file path (default: `/tmp/benchmark_write_cliff.testfile`)
+- `-h`, `--help` print usage
 
 **Preconditions:**
 - Must be run as root (sudo)
 - Requires `fio` installed on the system
 - Sufficient disk space in `/tmp` for the test file
+- Target OS scope: Ubuntu 20.04
 
 **Expected Output:**
 - FIO output showing write and read performance, IOPS, and latency
@@ -151,11 +158,11 @@ sudo ./benchmark_write_cliff.sh
 **How to Verify Success:**
 - Script completes without error
 - FIO output is displayed in the terminal
-- `/tmp/benchmark_write_cliff.testfile` is created and deleted
+- Test file is cleaned up at exit (or error)
 
 **Error Handling:**
 - Script exits on error (`set -e`)
-- If `fio` is not installed, script will fail with a command not found error
+- If `fio` is not installed, script exits with a preflight error
 - If insufficient disk space, fio will report an error
 
 
@@ -171,7 +178,7 @@ For realistic simulation and remediation, use the provided Ansible playbook to c
 
 #### Setup
 1. Edit `ansible/inventory.ini` to list your VM hostnames or IPs under the `[vms]` group.
-2. Adjust variables in `ansible/site.yml` as needed (e.g., duration, block size, time window).
+2. Adjust variables in `ansible/site.yml` as needed (e.g., `benchmark_duration`, `benchmark_block_size`, `spread_start`, `spread_end`).
 
 #### Usage
 To run the playbook and perform both actions:
@@ -201,16 +208,27 @@ ansible-playbook -i ansible/inventory.ini ansible/site.yml -e spread_logrotate=t
 
 **Usage Example:**
 ```sh
-sudo ./template_randomize_cron.sh
+sudo ./template_randomize_cron.sh --start 00:00 --end 06:00
+```
+
+Install one-shot first-boot service on template:
+```sh
+sudo ./template_randomize_cron.sh --install-first-boot-unit --start 00:00 --end 06:00
 ```
 
 **Arguments & Flags:**
-*No arguments required. The script randomizes logrotate/systemd timer or cron.daily for the template VM.*
+- `--start HH:MM` start of randomization window (default: `00:00`)
+- `--end HH:MM` end of randomization window, exclusive (default: `06:00`)
+- `--cron-file PATH` cron file to edit (default: `/etc/crontab`)
+- `--install-first-boot-unit` install and enable one-shot systemd service
+- `--flag-file PATH` override one-time marker file (default: `/var/lib/logrotate_randomized.flag`)
+- positional `cron_file` is also accepted for backward compatibility
+- `-h`, `--help` print usage
 
 **Preconditions:**
 - Must be run as root (sudo)
 - Should be executed on the golden/template VM before cloning or distributing
-- Target system must use either systemd logrotate.timer or /etc/crontab for cron.daily
+- Target OS scope: Ubuntu 20.04 (systemd timer and/or cron.daily entry)
 
 **Expected Output:**
 ```
@@ -223,6 +241,7 @@ Logrotate/cron.daily randomized to HH:MM (first boot only).
 - Or, check `/etc/crontab` for a randomized time on the cron.daily line
 - Run `systemctl list-timers | grep logrotate` to see the next scheduled time
 - The flag file `/var/lib/logrotate_randomized.flag` should exist after first run
+- If first-boot unit installed, verify `systemctl status logrotate-randomize-firstboot.service`
 
 **Error Handling:**
 - Script exits on error (`set -e`)
